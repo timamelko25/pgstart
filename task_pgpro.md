@@ -71,6 +71,68 @@ initial connection time = 5.543 ms
 tps = 4416.766044 (without initial connection time)
 ```
 
+## Задача 2
+
+### Задание
+
+[2] ускорить запрос "max + left join", добиться времени выполнения < 10ms
+
+```sql
+select max(t2.day) from t2 left join t1 on t2.t_id = t1.id and t1.name like 'a%';
+```
+
+### Ответ
+
+Проанализируем выполнение команды.
+
+```
+ Aggregate  (cost=385602.04..385602.05 rows=1 width=32) (actual time=2862.122..2862.124 rows=1 loops=1)
+   ->  Hash Left Join  (cost=218275.88..373102.06 rows=4999992 width=9) (actual time=733.367..2241.929 rows=5000000 loops=1)
+         Hash Cond: (t2.t_id = t1.id)
+         ->  Seq Scan on t2  (cost=0.00..81847.92 rows=4999992 width=13) (actual time=7.166..389.507 rows=5000000 loops=1)
+         ->  Hash  (cost=208332.23..208332.23 rows=606052 width=4) (actual time=726.085..726.086 rows=625375 loops=1)
+               Buckets: 262144  Batches: 4  Memory Usage: 7537kB
+               ->  Seq Scan on t1  (cost=0.00..208332.23 rows=606052 width=4) (actual time=0.017..662.167 rows=625375 loops=1)
+                     Filter: (name ~~ 'a%'::text)
+                     Rows Removed by Filter: 9374625
+ Planning Time: 0.390 ms
+ JIT:
+   Functions: 13
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 1.352 ms (Deform 0.500 ms), Inlining 0.000 ms, Optimization 0.766 ms, Emission 6.327 ms, Total 8.445 ms
+ Execution Time: 2863.618 ms
+(15 rows)
+```
+
+Использование `left join` применяется для большого количества данных и высокая селективность запроса делаем индексные сканы неэффективные. Для эффективного запроса создадим индексы для необходимых полей и вместо последовательного обхода для получение максимума возьмем первое значение отсортированное по убыванию.
+
+```sql
+create index t1_id_name_idx on t1(id, name) where name like 'a%';
+
+create index t2_day_t_id_idx on t2(day, t_id);
+```
+
+```sql
+select day from t2 where t_id in (select id from t1 where name like 'a%') order by day DESC LIMIT 1;
+```
+
+После выполнения получаем результат:
+
+```
+number of transactions per client: 100
+number of transactions actually processed: 100/100
+number of failed transactions: 0 (0.000%)
+latency average = 0.156 ms
+initial connection time = 1.355 ms
+tps = 6427.148274 (without initial connection time)
+```
+
+
+Так же можно создать `materialized view`, если запрос не будет изменяться и получить заранее известные данные.
+
+```sql
+create materialized view t2_day_like_a_view as select max(t2.day) from t2 left join t1 on t2.t_id = t1.id and t1.name like 'a%';
+```
 
 ## Задача 3
 
